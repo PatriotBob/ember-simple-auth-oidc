@@ -33,9 +33,11 @@ export default BaseAuthenticator.extend({
    *
    * @param {Object} options The authentication options
    * @param {String} options.code The authentication code
+   * @param {Object} options.pkce Object containing the pkce verifier
+   * @param {String} options.pkce.code_verifier PKCE verifier string
    * @returns {Object} The parsed response data
    */
-  async authenticate({ code, redirectUri }) {
+  async authenticate({ code, redirectUri, pkce }) {
     if (!tokenEndpoint || !userinfoEndpoint) {
       throw new Error(
         "Please define all OIDC endpoints (auth, token, userinfo)"
@@ -47,6 +49,7 @@ export default BaseAuthenticator.extend({
       client_id: clientId,
       grant_type: "authorization_code",
       redirect_uri: redirectUri,
+      ...pkce,
     };
     const body = Object.keys(bodyObject)
       .map((k) => `${k}=${encodeURIComponent(bodyObject[k])}`)

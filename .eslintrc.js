@@ -6,4 +6,7 @@ module.exports = {
     "ember/no-new-mixins": "warn",
     "ember/no-mixins": "warn",
   },
+  globals: {
+    globalThis: "readonly",
+  },
 };

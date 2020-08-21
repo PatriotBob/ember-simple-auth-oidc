@@ -7,7 +7,7 @@ import getAbsoluteUrl from "ember-simple-auth-oidc/utils/absoluteUrl";
 import UnauthenticatedRouteMixin from "ember-simple-auth/mixins/unauthenticated-route-mixin";
 import { v4 } from "uuid";
 
-const { host, clientId, authEndpoint, scope, loginHintName } = config;
+const { host, clientId, authEndpoint, scope, loginHintName, usePkce } = config;
 
 export default Mixin.create(UnauthenticatedRouteMixin, {
   session: service(),
@@ -65,7 +65,7 @@ export default Mixin.create(UnauthenticatedRouteMixin, {
       );
     }
 
-    return this._handleRedirectRequest(queryParams);
+    return await this._handleRedirectRequest(queryParams);
   },
 
   /**
@@ -91,9 +91,19 @@ export default Mixin.create(UnauthenticatedRouteMixin, {
 
     this.session.set("data.state", undefined);
 
+    let pkce = {};
+    if (usePkce) {
+      pkce = {
+        code_verifier: this.session.get("data.codeVerifier"),
+      };
+
+      this.session.set("data.codeVerifier", undefined);
+    }
+
     await this.session.authenticate("authenticator:oidc", {
       code,
       redirectUri: this.redirectUri,
+      pkce,
     });
   },
 
@@ -105,7 +115,7 @@ export default Mixin.create(UnauthenticatedRouteMixin, {
    * match this state, otherwise the authentication will fail to prevent from
    * CSRF attacks.
    */
-  _handleRedirectRequest(queryParams) {
+  async _handleRedirectRequest(queryParams) {
     const state = v4();
 
     this.session.set("data.state", state);
@@ -124,6 +134,19 @@ export default Mixin.create(UnauthenticatedRouteMixin, {
     // forward `login_hint` query param if present
     const key = loginHintName || "login_hint";
 
+    let code_challenge = "";
+    if (usePkce) {
+      const randomBytes = globalThis.crypto.getRandomValues(new Uint8Array(96));
+      const codeVerifier = this._base64UrlEncode(randomBytes);
+      this.session.set("data.codeVerifier", codeVerifier);
+      const encoder = new TextEncoder();
+      const codeDigest = await globalThis.crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(codeVerifier).buffer
+      );
+      code_challenge = this._base64UrlEncode(new Uint8Array(codeDigest));
+    }
+
     const search = [
       `client_id=${clientId}`,
       `redirect_uri=${this.redirectUri}`,
@@ -131,10 +154,19 @@ export default Mixin.create(UnauthenticatedRouteMixin, {
       `state=${state}`,
       `scope=${scope}`,
       queryParams[key] ? `${key}=${queryParams[key]}` : null,
+      usePkce ? `code_challenge=${code_challenge}` : null,
+      usePkce ? "code_challenge_method=S256" : null,
     ]
       .filter(Boolean)
       .join("&");
 
     this._redirectToUrl(`${getAbsoluteUrl(host)}${authEndpoint}?${search}`);
+  },
+
+  _base64UrlEncode(bytes) {
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
   },
 });
